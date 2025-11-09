@@ -9,6 +9,63 @@ const generateRoutineBtn = document.getElementById("generateRoutine");
 /* Array to track selected products */
 let selectedProducts = [];
 
+/* Array to store conversation history */
+let conversationHistory = [
+  {
+    role: "system",
+    content:
+      "You are a helpful beauty and skincare expert at L'Oréal. Provide friendly, knowledgeable advice about beauty products, skincare routines, haircare, makeup, fragrance, and product recommendations. Be concise but informative. Only answer questions related to beauty, skincare, haircare, makeup, fragrance, and wellness topics.",
+  },
+];
+
+/* Load selected products from localStorage on page load */
+function loadSelectedProductsFromStorage() {
+  const stored = localStorage.getItem("lorealSelectedProducts");
+  if (stored) {
+    try {
+      selectedProducts = JSON.parse(stored);
+      updateSelectedProductsDisplay();
+    } catch (error) {
+      console.error("Error loading selected products:", error);
+      localStorage.removeItem("lorealSelectedProducts");
+    }
+  }
+}
+
+/* Save selected products to localStorage */
+function saveSelectedProductsToStorage() {
+  try {
+    localStorage.setItem(
+      "lorealSelectedProducts",
+      JSON.stringify(selectedProducts)
+    );
+  } catch (error) {
+    console.error("Error saving selected products:", error);
+  }
+}
+
+/* Clear all selected products */
+function clearAllProducts() {
+  if (selectedProducts.length === 0) return;
+
+  if (confirm("Are you sure you want to clear all selected products?")) {
+    selectedProducts = [];
+    saveSelectedProductsToStorage();
+    updateSelectedProductsDisplay();
+
+    // Remove selected class from all product cards
+    document.querySelectorAll(".product-card.selected").forEach((card) => {
+      card.classList.remove("selected");
+    });
+  }
+}
+
+/* Make clearAllProducts available globally */
+window.clearAllProducts = clearAllProducts;
+
+/* Load saved products when page loads */
+loadSelectedProductsFromStorage();
+
 /* Show initial placeholder until user selects a category */
 productsContainer.innerHTML = `
   <div class="placeholder-message">
@@ -31,9 +88,10 @@ function updateSelectedProductsDisplay() {
     `;
     generateRoutineBtn.disabled = true;
   } else {
-    selectedProductsList.innerHTML = selectedProducts
-      .map(
-        (product) => `
+    selectedProductsList.innerHTML =
+      selectedProducts
+        .map(
+          (product) => `
         <div class="selected-product-tag" data-product-id="${product.id}">
           <span>${product.name}</span>
           <button onclick="removeProduct('${product.id}')" aria-label="Remove ${product.name}">
@@ -41,8 +99,13 @@ function updateSelectedProductsDisplay() {
           </button>
         </div>
       `
-      )
-      .join("");
+        )
+        .join("") +
+      `
+      <button class="clear-all-btn" onclick="clearAllProducts()" aria-label="Clear all products">
+        <i class="fa-solid fa-trash-can"></i> Clear All
+      </button>
+    `;
     generateRoutineBtn.disabled = false;
   }
 }
@@ -61,6 +124,7 @@ function toggleProductSelection(product, cardElement) {
     cardElement.classList.remove("selected");
   }
 
+  saveSelectedProductsToStorage();
   updateSelectedProductsDisplay();
 }
 
@@ -76,6 +140,7 @@ function removeProduct(productId) {
     cardElement.classList.remove("selected");
   }
 
+  saveSelectedProductsToStorage();
   updateSelectedProductsDisplay();
 }
 
@@ -176,7 +241,19 @@ generateRoutineBtn.addEventListener("click", async () => {
         description: p.description || "No description available",
       }));
 
-      // Call Cloudflare Worker
+      const userMessage = `Create a personalized beauty routine using these products:\n\n${JSON.stringify(
+        productData,
+        null,
+        2
+      )}\n\nProvide a step-by-step routine with specific instructions on when and how to use each product for optimal results.`;
+
+      // Add user message to conversation history
+      conversationHistory.push({
+        role: "user",
+        content: userMessage,
+      });
+
+      // Call Cloudflare Worker with conversation history
       const response = await fetch(
         "https://lorealworker.pdgauvreau.workers.dev",
         {
@@ -185,21 +262,7 @@ generateRoutineBtn.addEventListener("click", async () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are a helpful beauty and skincare expert at L'Oréal. Create personalized, detailed routines based on the products provided. Be specific about order of application, frequency, and tips for best results.",
-              },
-              {
-                role: "user",
-                content: `Create a personalized beauty routine using these products:\n\n${JSON.stringify(
-                  productData,
-                  null,
-                  2
-                )}\n\nProvide a step-by-step routine with specific instructions on when and how to use each product for optimal results.`,
-              },
-            ],
+            messages: conversationHistory,
           }),
         }
       );
@@ -211,6 +274,12 @@ generateRoutineBtn.addEventListener("click", async () => {
       const data = await response.json();
       const routine = data.choices[0].message.content;
 
+      // Add assistant response to conversation history
+      conversationHistory.push({
+        role: "assistant",
+        content: routine,
+      });
+
       // Display the generated routine
       chatWindow.innerHTML = `
         <div style="color: #ff003b; font-weight: 600; margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
@@ -218,6 +287,11 @@ generateRoutineBtn.addEventListener("click", async () => {
           Your Personalized Routine
         </div>
         <div style="line-height: 1.8; white-space: pre-wrap;">${routine}</div>
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #f0f0f0;">
+          <p style="color: #e3a535; font-size: 14px; font-weight: 500;">
+            <i class="fa-solid fa-comment-dots"></i> Have questions about your routine? Ask below!
+          </p>
+        </div>
       `;
     } catch (error) {
       console.error("Error generating routine:", error);
@@ -239,6 +313,45 @@ generateRoutineBtn.addEventListener("click", async () => {
   }
 });
 
+/* Helper function to render conversation history */
+function renderConversation() {
+  const messagesHTML = conversationHistory
+    .filter((msg) => msg.role !== "system") // Don't show system messages
+    .map((msg) => {
+      if (msg.role === "user") {
+        return `
+          <div style="margin-bottom: 15px;">
+            <p style="color: #666; font-size: 14px; margin-bottom: 5px;"><strong>You:</strong></p>
+            <p style="background: #f5f5f5; padding: 12px; border-radius: 8px; line-height: 1.6;">${msg.content}</p>
+          </div>
+        `;
+      } else {
+        return `
+          <div style="margin-bottom: 15px;">
+            <p style="color: #ff003b; font-size: 14px; margin-bottom: 5px; font-weight: 600;">
+              <i class="fa-solid fa-sparkles"></i> L'Oréal Assistant:
+            </p>
+            <p style="background: linear-gradient(135deg, rgba(255, 0, 59, 0.03) 0%, rgba(227, 165, 53, 0.03) 100%); padding: 12px; border-radius: 8px; line-height: 1.8; white-space: pre-wrap;">${msg.content}</p>
+          </div>
+        `;
+      }
+    })
+    .join("");
+
+  chatWindow.innerHTML =
+    messagesHTML +
+    `
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #f0f0f0;">
+      <p style="color: #e3a535; font-size: 14px; font-weight: 500;">
+        <i class="fa-solid fa-comment-dots"></i> Ask follow-up questions about your routine!
+      </p>
+    </div>
+  `;
+
+  // Scroll to bottom
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
 /* Chat form submission handler - for asking questions about products */
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -248,54 +361,38 @@ chatForm.addEventListener("submit", async (e) => {
 
   if (!userMessage) return;
 
-  // Display user message
-  chatWindow.innerHTML = `
-    <div style="margin-bottom: 15px;">
-      <p style="color: #666; font-size: 14px; margin-bottom: 5px;"><strong>You:</strong></p>
-      <p>${userMessage}</p>
-    </div>
-    <div style="display: flex; align-items: center; gap: 10px; color: #ff003b;">
+  // Add user message to conversation history
+  conversationHistory.push({
+    role: "user",
+    content: userMessage,
+  });
+
+  // Clear input
+  userInput.value = "";
+
+  // Render conversation with loading indicator
+  renderConversation();
+  chatWindow.innerHTML += `
+    <div style="display: flex; align-items: center; gap: 10px; color: #ff003b; margin-top: 15px;">
       <i class="fa-solid fa-spinner fa-spin"></i>
       <p>Thinking...</p>
     </div>
   `;
 
-  userInput.value = "";
-
   try {
-    // Prepare context with selected products if any
-    let contextMessage = userMessage;
-    if (selectedProducts.length > 0) {
-      const productList = selectedProducts
-        .map((p) => `${p.name} by ${p.brand}`)
-        .join(", ");
-      contextMessage += `\n\nContext: The user has selected these products: ${productList}`;
-    }
-
-    // Call OpenAI API
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a helpful beauty and skincare expert at L'Oréal. Provide friendly, knowledgeable advice about beauty products, skincare routines, and product recommendations. Be concise but informative.",
-          },
-          {
-            role: "user",
-            content: contextMessage,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-      }),
-    });
+    // Call Cloudflare Worker with full conversation history
+    const response = await fetch(
+      "https://lorealworker.pdgauvreau.workers.dev",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: conversationHistory,
+        }),
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
@@ -304,31 +401,28 @@ chatForm.addEventListener("submit", async (e) => {
     const data = await response.json();
     const aiResponse = data.choices[0].message.content;
 
-    // Display the conversation
-    chatWindow.innerHTML = `
-      <div style="margin-bottom: 15px;">
-        <p style="color: #666; font-size: 14px; margin-bottom: 5px;"><strong>You:</strong></p>
-        <p>${userMessage}</p>
-      </div>
-      <div>
-        <p style="color: #ff003b; font-size: 14px; margin-bottom: 5px; font-weight: 600;">
-          <i class="fa-solid fa-sparkles"></i> L'Oréal Assistant:
-        </p>
-        <p style="line-height: 1.8;">${aiResponse}</p>
-      </div>
-    `;
+    // Add assistant response to conversation history
+    conversationHistory.push({
+      role: "assistant",
+      content: aiResponse,
+    });
+
+    // Render updated conversation
+    renderConversation();
   } catch (error) {
     console.error("Error in chat:", error);
-    chatWindow.innerHTML = `
-      <div style="margin-bottom: 15px;">
-        <p style="color: #666; font-size: 14px; margin-bottom: 5px;"><strong>You:</strong></p>
-        <p>${userMessage}</p>
-      </div>
-      <div style="color: #ff003b;">
+
+    // Remove the last user message from history since the request failed
+    conversationHistory.pop();
+
+    // Show error
+    renderConversation();
+    chatWindow.innerHTML += `
+      <div style="color: #ff003b; margin-top: 15px; padding: 12px; background: #fff5f7; border-radius: 8px;">
         <p style="font-weight: 600; margin-bottom: 10px;">
           <i class="fa-solid fa-exclamation-circle"></i> Error
         </p>
-        <p style="color: #666;">There was an error connecting to the OpenAI API. Please check your API key and try again.</p>
+        <p style="color: #666;">There was an error connecting to the API. Please try again.</p>
       </div>
     `;
   }

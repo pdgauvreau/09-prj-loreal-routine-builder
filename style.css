@@ -430,6 +430,32 @@ body {
   background: rgba(255, 255, 255, 0.5);
 }
 
+.clear-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: #666;
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.clear-all-btn:hover {
+  background: #ff003b;
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(255, 0, 59, 0.3);
+}
+
+.clear-all-btn i {
+  font-size: 12px;
+}
+
 .generate-btn {
   width: 100%;
   margin-top: 20px;
